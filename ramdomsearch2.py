@@ -1,65 +1,73 @@
-
+# UE IA & JEUX - L3, SU
+# TP "comportement réactif"
+#
+# Nicolas Bredeche
+# 2021-03-31
 
 from pyroborobo import Pyroborobo, Controller, AgentObserver, WorldObserver, CircleObject, SquareObject, MovableObject
 # from custom.controllers import SimpleController, HungryController
 import numpy as np
 import random
+import math
 
 import paintwars_arena
 
+rob = 0
+
 # =-=-=-=-=-=-=-=-=-= NE RIEN MODIFIER *AVANT* CETTE LIGNE =-=-=-=-=-=-=-=-=-=
 
-def get_extended_sensors(sensors):
-    for key in sensors:
-        sensors[key]["distance_to_robot"] = 1.0
-        sensors[key]["distance_to_wall"] = 1.0
-        if sensors[key]["isRobot"] == True:
-            sensors[key]["distance_to_robot"] = sensors[key]["distance"]
+simulation_mode = 1
+
+posInit = (400, 400)
+param = []
+bestParam = []
+bestDistance = 0
+
+evaluations = 500
+current_evaluations = 0
+best_iterations = 0
+num = 3
+
+def step(robotId, sensors, position):
+    global evaluations, current_evaluations, param, bestParam, bestDistance, best_iterations, num
+
+    if current_evaluations >= evaluations:
+        if best_iterations < 1000:
+            param = bestParam
+            best_iterations += 1
         else:
-            sensors[key]["distance_to_wall"] = sensors[key]["distance"]
-    return sensors
+            best_iterations = 0
+            current_evaluations = 0
+    else:
+        if rob.iterations % (400 * num) == 0:
+            if rob.iterations > 0:
+                dist = math.sqrt(math.pow(posInit[0] - position[0], 2) + math.pow(posInit[1] - position[1], 2))
+                print("Distance:", dist)
+                if dist > bestDistance:
+                    bestDistance = dist
+                    bestParam = param
+                    print("New best distance:", bestDistance)
+                    print("New best parameters:", bestParam)
+                current_evaluations += 1
 
-def step(robotId, sensors): # <<<<<<<<<------- fonction à modifier pour le TP1
+            param = []
+            for i in range(0, 8):
+                param.append(random.randint(-1, 1))
 
-    # sensors: dictionnaire contenant toutes les informations senseurs
-    # Chaque senseur renvoie:
-    #   la distance à l'obstacle (entre 0  et 1, distance max)
-    #   s'il s'agit d'un robot ou non
-    #   la distance au robot (= 1.0 s'il n'y a pas de robot)
-    #   la distance au mur (= 1.0 s'il n'y a pas de robot)
-    # cf. exemple ci-dessous
+            rob.controllers[robotId].set_position(posInit[0], posInit[1])
 
-    # récupération des senseurs
+            # Set a random initial orientation
+            random_orientation = random.uniform(0, 360)
+            rob.controllers[robotId].set_absolute_orientation(random_orientation)
 
-    sensors = get_extended_sensors(sensors)
-    print (
-        "[robot #",robotId,"] senseur frontal: (distance à l'obstacle =",sensors["sensor_front"]["distance"],")",
-        "(robot =",sensors["sensor_front"]["isRobot"],")",
-        "(distance_to_wall =", sensors["sensor_front"]["distance_to_wall"],")", # renvoie 1.0 si ce n'est pas un mur
-        "(distance_to_robot =", sensors["sensor_front"]["distance_to_robot"],")"  # renvoie 1.0 si ce n'est pas un robot
-    )
-
-    # contrôle moteur. Ecrivez votre comportement de Braitenberg ci-dessous.
-    # il est possible de répondre à toutes les questions en utilisant seulement:
-    #   sensors["sensor_front"]["distance_to_wall"]
-    #   sensors["sensor_front"]["distance_to_robot"]
-    #   sensors["sensor_front_left"]["distance_to_wall"]
-    #   sensors["sensor_front_left"]["distance_to_robot"]
-    #   sensors["sensor_front_right"]["distance_to_wall"]
-    #   sensors["sensor_front_right"]["distance_to_robot"]
-
-    translation = 1 * sensors["sensor_front"]["distance"]
-    rotation = (-1) * sensors["sensor_front_left"]["distance"] + (1) * sensors["sensor_front_right"]["distance"]
-
-    # limite les valeurs de sortie entre -1 et +1
-    translation = max(-1,min(translation,1))
-    rotation = max(-1, min(rotation, 1))
+    translation = math.tanh(param[0] + param[1] * sensors["sensor_front_left"]["distance"] + param[2] * sensors["sensor_front"]["distance"] + param[3] * sensors["sensor_front_right"]["distance"])
+    rotation = math.tanh(param[4] + param[5] * sensors["sensor_front_left"]["distance"] + param[6] * sensors["sensor_front"]["distance"] + param[7] * sensors["sensor_front_right"]["distance"])
 
     return translation, rotation
 
 # =-=-=-=-=-=-=-=-=-= NE RIEN MODIFIER *APRES* CETTE LIGNE =-=-=-=-=-=-=-=-=-=
 
-number_of_robots = 8  # 8 robots identiques placés dans l'arène
+number_of_robots = 1  # 8 robots identiques placés dans l'arène
 
 arena = [
             [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
@@ -91,8 +99,6 @@ arena = [
             [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
         ]
 
-rob = 0
-
 offset_x = 36
 offset_y = 36
 edge_width = 28
@@ -111,17 +117,16 @@ class MyController(Controller):
 
         sensors = {}
 
-        self.get_robot_id_at(0) != -1
-        sensors["sensor_left"] = {"distance": self.get_distance_at(0), "isRobot": self.get_robot_id_at(0) != -1}
-        sensors["sensor_front_left"] = {"distance": self.get_distance_at(1), "isRobot": self.get_robot_id_at(1) != -1}
-        sensors["sensor_front"] = {"distance": self.get_distance_at(2), "isRobot": self.get_robot_id_at(2) != -1}
-        sensors["sensor_front_right"] = {"distance": self.get_distance_at(3), "isRobot": self.get_robot_id_at(3) != -1}
-        sensors["sensor_right"] = {"distance": self.get_distance_at(4), "isRobot": self.get_robot_id_at(4) != -1}
-        sensors["sensor_back_right"] = {"distance": self.get_distance_at(5), "isRobot": self.get_robot_id_at(5) != -1}
-        sensors["sensor_back"] = {"distance": self.get_distance_at(6), "isRobot": self.get_robot_id_at(6) != -1}
-        sensors["sensor_back_left"] = {"distance": self.get_distance_at(7), "isRobot": self.get_robot_id_at(7) != -1}
+        sensors["sensor_left"] = {"distance": self.get_distance_at(0)}
+        sensors["sensor_front_left"] = {"distance": self.get_distance_at(1)}
+        sensors["sensor_front"] = {"distance": self.get_distance_at(2)}
+        sensors["sensor_front_right"] = {"distance": self.get_distance_at(3)}
+        sensors["sensor_right"] = {"distance": self.get_distance_at(4)}
+        sensors["sensor_back_right"] = {"distance": self.get_distance_at(5)}
+        sensors["sensor_back"] = {"distance": self.get_distance_at(6)}
+        sensors["sensor_back_left"] = {"distance": self.get_distance_at(7)}
 
-        translation, rotation = step(self.id, sensors)
+        translation, rotation = step(self.id, sensors, self.absolute_position)
 
         self.set_translation(translation)
         self.set_rotation(rotation)
@@ -236,7 +241,7 @@ def main():
         #        world_model_class=PyWorldModel,
         agent_observer_class=MyAgentObserver,
         object_class_dict={}
-        ,override_conf_dict={"gInitialNumberOfRobots": number_of_robots} # defined in paintwars_config
+        ,override_conf_dict={"gInitialNumberOfRobots": number_of_robots, "gDisplayMode": simulation_mode}
     )
 
     rob.start()

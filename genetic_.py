@@ -1,13 +1,23 @@
 
-
 from pyroborobo import Pyroborobo, Controller, AgentObserver, WorldObserver, CircleObject, SquareObject, MovableObject
 # from custom.controllers import SimpleController, HungryController
 import numpy as np
 import random
-
+import math
 import paintwars_arena
 
 # =-=-=-=-=-=-=-=-=-= NE RIEN MODIFIER *AVANT* CETTE LIGNE =-=-=-=-=-=-=-=-=-=
+
+param = []
+bestParam = []
+bestDistance = 0
+bestScore = 0
+evaluations = 500
+population = []
+current_evaluations = 0
+mu = 5
+lambda_ = 20
+selected_parents = []
 
 def get_extended_sensors(sensors):
     for key in sensors:
@@ -19,43 +29,79 @@ def get_extended_sensors(sensors):
             sensors[key]["distance_to_wall"] = sensors[key]["distance"]
     return sensors
 
-def step(robotId, sensors): # <<<<<<<<<------- fonction à modifier pour le TP1
+def init_population(mu):
+    return [[random.uniform(-1, 1) for _ in range(8)] for _ in range(mu)]
 
-    # sensors: dictionnaire contenant toutes les informations senseurs
-    # Chaque senseur renvoie:
-    #   la distance à l'obstacle (entre 0  et 1, distance max)
-    #   s'il s'agit d'un robot ou non
-    #   la distance au robot (= 1.0 s'il n'y a pas de robot)
-    #   la distance au mur (= 1.0 s'il n'y a pas de robot)
-    # cf. exemple ci-dessous
+def mutation(individual, mutation_rate):
+    mutated = individual.copy()
+    for i in range(len(mutated)):
+        if random.random() < mutation_rate:
+            mutated[i] += random.uniform(-0.1, 0.1)
+            mutated[i] = max(min(mutated[i], 1), -1)
+    return mutated
 
-    # récupération des senseurs
+def select(population, scores):
+    select = []
+    total_score = sum(scores)
+    relative_scores = [score / total_score for score in scores]
+    cumulative_scores = [sum(relative_scores[:i+1]) for i in range(len(relative_scores))]
+    
+    for _ in range(mu):
+        r = random.random()
+        for i in range(len(cumulative_scores)):
+            if r <= cumulative_scores[i]:
+                select.append(population[i])
+                break
+    return select
+    
+def crossover(parent1, parent2):
+    child = []
+    for i in range(len(parent1)):
+        child.append((parent1[i] + parent2[i]) / 2)
+    return child
 
-    sensors = get_extended_sensors(sensors)
-    print (
-        "[robot #",robotId,"] senseur frontal: (distance à l'obstacle =",sensors["sensor_front"]["distance"],")",
-        "(robot =",sensors["sensor_front"]["isRobot"],")",
-        "(distance_to_wall =", sensors["sensor_front"]["distance_to_wall"],")", # renvoie 1.0 si ce n'est pas un mur
-        "(distance_to_robot =", sensors["sensor_front"]["distance_to_robot"],")"  # renvoie 1.0 si ce n'est pas un robot
-    )
+def score(translation, rotation):
+    return translation * (1 - abs(rotation))
 
-    # contrôle moteur. Ecrivez votre comportement de Braitenberg ci-dessous.
-    # il est possible de répondre à toutes les questions en utilisant seulement:
-    #   sensors["sensor_front"]["distance_to_wall"]
-    #   sensors["sensor_front"]["distance_to_robot"]
-    #   sensors["sensor_front_left"]["distance_to_wall"]
-    #   sensors["sensor_front_left"]["distance_to_robot"]
-    #   sensors["sensor_front_right"]["distance_to_wall"]
-    #   sensors["sensor_front_right"]["distance_to_robot"]
+def step(robotId, sensors):
+    global current_evaluations, population, selected_parents, bestParam, bestScore, mu, lambda_, mutation_rate
+    
+    if len(population) == 0:
+        population = init_population(mu)
+        for p in population:
+           translation = math.tanh(p[0] + p[1] * sensors["sensor_front_left"]["distance"] + p[2] * sensors["sensor_front"]["distance"] + p[3] * sensors["sensor_front_right"]["distance"])
+           if translation > 0:
+              param = p
+              break
+        param = population[0]
+    else:
+        param = population[current_evaluations % lambda_]
 
-    translation = 1 * sensors["sensor_front"]["distance"]
-    rotation = (-1) * sensors["sensor_front_left"]["distance"] + (1) * sensors["sensor_front_right"]["distance"]
+    translation = math.tanh(param[0] + param[1] * sensors["sensor_front_left"]["distance"] + param[2] * sensors["sensor_front"]["distance"] + param[3] * sensors["sensor_front_right"]["distance"])
+    rotation = math.tanh(param[4] + param[5] * sensors["sensor_front_left"]["distance"] + param[6] * sensors["sensor_front"]["distance"] + param[7] * sensors["sensor_front_right"]["distance"])
+    
+    current_score = score(translation, rotation)
+    if current_score > bestScore:
+        bestScore = current_score
+        bestParam = param.copy()
 
-    # limite les valeurs de sortie entre -1 et +1
-    translation = max(-1,min(translation,1))
-    rotation = max(-1, min(rotation, 1))
+    current_evaluations += 1
+
+    
+    Scores = [score(math.tanh(individual[0] + individual[1] * sensors["sensor_front_left"]["distance"] + individual[2] * sensors["sensor_front"]["distance"] + individual[3] * sensors["sensor_front_right"]["distance"]), math.tanh(individual[4] + individual[5] * sensors["sensor_front_left"]["distance"] + individual[6] * sensors["sensor_front"]["distance"] + individual[7] * sensors["sensor_front_right"]["distance"])) for individual in population]
+    select_parents = select(population, Scores)
+    population = []
+    for i in range(lambda_):
+            parent1 = random.choice(select_parents)
+            parent2 = random.choice(select_parents)
+            child = crossover(parent1, parent2)
+            mutate_child = mutation(child, 0.2)
+            population.append(mutate_child)
+    translation = math.tanh(param[0] + param[1] * sensors["sensor_front_left"]["distance"] + param[2] * sensors["sensor_front"]["distance"] + param[3] * sensors["sensor_front_right"]["distance"])
+    rotation = math.tanh(param[4] + param[5] * sensors["sensor_front_left"]["distance"] + param[6] * sensors["sensor_front"]["distance"] + param[7] * sensors["sensor_front_right"]["distance"])
 
     return translation, rotation
+
 
 # =-=-=-=-=-=-=-=-=-= NE RIEN MODIFIER *APRES* CETTE LIGNE =-=-=-=-=-=-=-=-=-=
 
@@ -238,11 +284,11 @@ def main():
         object_class_dict={}
         ,override_conf_dict={"gInitialNumberOfRobots": number_of_robots} # defined in paintwars_config
     )
-
+    
     rob.start()
-
+  
     rob.update(1000000)
     rob.close()
-
+    
 if __name__ == "__main__":
     main()
